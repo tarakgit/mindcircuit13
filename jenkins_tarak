@@ -1,0 +1,74 @@
+pipeline {
+  agent any
+  tools { maven 'M3' }   // ensure a Maven tool named "M3" exists in Global Tool Config
+
+  stages {
+    stage('code checkout') {
+      steps {
+        echo 'Cloning GIT HUB Repo'
+        git branch: 'main', url: 'https://github.com/tarakgit/mindcircuit13.git'
+      }
+    }
+
+    stage('sonar scan') {
+      environment { SONAR_HOST_URL = 'http://54.80.164.2:9000' }
+      steps {
+        echo 'scanning project'
+        sh 'ls -ltr'
+        withCredentials([string(credentialsId: 'sonar_token', variable: 'SONAR_TOKEN')]) {
+          sh """
+            mvn -B -DskipTests clean verify sonar:sonar \
+              -Dsonar.host.url=${SONAR_HOST_URL} \
+              -Dsonar.login=${SONAR_TOKEN}
+          """
+        }
+      }
+    }
+
+    stage('Build Artifact') {
+      steps {
+        echo 'Building Artifact'
+        sh 'mvn -B -DskipTests clean package'
+      }
+    }
+
+    stage('Docker image build') {
+      steps {
+        echo 'Building Docker image'
+        sh 'docker build -t dockertarak/cicd_practice:${BUILD_NUMBER} .'
+      }
+    }
+
+    stage('Docker image push to dockerhub') {
+      steps {
+        echo 'Push the image to Docker Hub'
+        withCredentials([string(credentialsId: 'dockerhub_token', variable: 'DOCKERHUB_TOKEN')]) {
+          sh '''
+            echo "$DOCKERHUB_TOKEN" | docker login -u dockertarak --password-stdin
+            docker push dockertarak/cicd_practice:${BUILD_NUMBER}
+          '''
+        }
+      }
+    }
+
+    stage('Deployment manifest File update') {
+      environment {
+        GIT_REPO_NAME = "mindcircuit13"
+        GIT_USER_NAME = "tarakgit"
+      }
+      steps {
+        echo 'Updating the manifest files with latest docker image built'
+        withCredentials([string(credentialsId: 'github_token', variable: 'GITHUB_TOKEN')]) {
+          sh '''
+            git config user.email "taraka.paruchuru@gmail.com"
+            git config user.name  "tarakgit"
+            sed -i "s#image: .*#image: dockertarak/cicd_practice:${BUILD_NUMBER}#g" deploymentfiles/deployment.yml
+            git add deploymentfiles/deployment.yml || true
+            git commit -m "Update deployment image to version ${BUILD_NUMBER}" || true
+            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+          '''
+        }
+      }
+    }
+  }
+}
