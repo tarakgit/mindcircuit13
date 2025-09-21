@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: mc-app
-        image: dockertarak/cicd_practice:19
+        image: dockertarak/cicd_practice:20
         ports:
         - containerPort: 8080
 
